@@ -1,0 +1,64 @@
+# ==============================================================================
+# Daily News Bot Configuration
+# การตั้งค่าสำหรับระบบดึงและสรุปข่าวเช้าอัตโนมัติ
+# ==============================================================================
+
+settings:
+  # จำนวนข่าวเด่นที่ต้องการให้ Gemini คัดเลือกและสรุป (3 - 5 ข่าว)
+  min_news_items: 3
+  max_news_items: 5
+  
+  # โมเดล Gemini ที่ใช้งาน (gemini-2.5-flash หรือ gemini-1.5-flash)
+  gemini_model: "gemini-2.5-flash"
+  
+  # ระยะเวลา Timeout ในการดึง RSS แต่ละแหล่ง (วินาที)
+  fetch_timeout_seconds: 15
+  
+  # จำนวนหัวข้อข่าวต่อแหล่งข่าวที่จะดึงมาเป็นตัวเลือกให้ AI
+  max_items_per_source: 5
+
+# แหล่งข่าว RSS Feeds (สามารถเปิด/ปิด หรือเพิ่มแหล่งข่าวใหม่ได้ตามต้องการ)
+sources:
+  # --- ข่าวรวมเด่นประเทศไทย (Google News) ---
+  - name: "Google News Thailand"
+    category: "ข่าวเด่น"
+    url: "https://news.google.com/rss?hl=th&gl=TH&ceid=TH:th"
+    enabled: true
+
+  # --- ข่าวทั่วไป / สังคม ---
+  - name: "Thai PBS"
+    category: "ทั่วไป"
+    url: "https://news.google.com/rss/search?q=site:thaipbs.or.th&hl=th&gl=TH&ceid=TH:th"
+    enabled: true
+
+  - name: "Thairath"
+    category: "ทั่วไป"
+    url: "https://www.thairath.co.th/rss/news"
+    enabled: true
+
+  - name: "Khaosod"
+    category: "ทั่วไป"
+    url: "https://www.khaosod.co.th/feed"
+    enabled: true
+
+  # --- ข่าวธุรกิจ / การเงิน ---
+  - name: "The Standard Wealth"
+    category: "ธุรกิจ"
+    url: "https://thestandard.co/category/wealth/feed/"
+    enabled: true
+
+  - name: "Brand Inside"
+    category: "ธุรกิจ"
+    url: "https://brandinside.asia/feed/"
+    enabled: true
+
+  # --- ข่าวไอที / เทคโนโลยี ---
+  - name: "Blognone"
+    category: "ไอที"
+    url: "https://www.blognone.com/atom.xml"
+    enabled: true
+
+  - name: "Beartai"
+    category: "เทคโนโลยี"
+    url: "https://www.beartai.com/feed"
+    enabled: true
