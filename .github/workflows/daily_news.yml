@@ -1,0 +1,35 @@
+name: Daily Morning News Bot
+
+on:
+  schedule:
+    # รันอัตโนมัติทุกวันเวลา 08:00 น. เวลาประเทศไทย (UTC+7) = 01:00 UTC
+    - cron: '0 1 * * *'
+  workflow_dispatch: # เปิดให้กดปุ่ม "Run workflow" สั่งรันด้วยตนเองได้ตลอดเวลา
+
+jobs:
+  report-news:
+    name: Fetch, Summarize, and Send Daily News
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Daily News Bot
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        run: |
+          python -m src.main
