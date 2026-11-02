@@ -17,11 +17,11 @@ class SourceConfig:
 
 @dataclass
 class SettingsConfig:
-    min_news_items: int = 3
-    max_news_items: int = 5
+    min_news_items: int = 15
+    max_news_items: int = 15
     gemini_model: str = "gemini-2.5-flash"
     fetch_timeout_seconds: int = 15
-    max_items_per_source: int = 5
+    max_items_per_source: int = 8
 
 
 @dataclass
@@ -150,11 +150,11 @@ def load_config(config_path: str = "config.yaml") -> AppConfig:
     # Parse settings
     settings_data = cfg_data.get("settings", {})
     settings = SettingsConfig(
-        min_news_items=int(settings_data.get("min_news_items", 3)),
-        max_news_items=int(settings_data.get("max_news_items", 5)),
+        min_news_items=int(settings_data.get("min_news_items", 15)),
+        max_news_items=int(settings_data.get("max_news_items", 15)),
         gemini_model=os.getenv("GEMINI_MODEL") or str(settings_data.get("gemini_model", "gemini-2.5-flash")),
         fetch_timeout_seconds=int(settings_data.get("fetch_timeout_seconds", 15)),
-        max_items_per_source=int(settings_data.get("max_items_per_source", 5)),
+        max_items_per_source=int(settings_data.get("max_items_per_source", 8)),
     )
 
     # Parse sources

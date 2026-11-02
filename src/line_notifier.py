@@ -2,6 +2,7 @@
 
 import datetime
 import logging
+import math
 from typing import Any, Optional
 from urllib.parse import quote, urlparse, urlunparse
 
@@ -24,13 +25,17 @@ THAI_MONTHS_FULL = [
 ]
 
 CATEGORY_THEMES: dict[str, dict[str, str]] = {
+    "ข่าวทั่วไทย": {"header_bg": "#0C4A6E", "badge_bg": "#0284C7", "badge_text": "#FFFFFF", "icon": "🇹🇭"},
+    "ทั่วไทย": {"header_bg": "#0C4A6E", "badge_bg": "#0284C7", "badge_text": "#FFFFFF", "icon": "🇹🇭"},
+    "ข่าวการเมือง": {"header_bg": "#881337", "badge_bg": "#E11D48", "badge_text": "#FFFFFF", "icon": "🏛️"},
+    "การเมือง": {"header_bg": "#881337", "badge_bg": "#E11D48", "badge_text": "#FFFFFF", "icon": "🏛️"},
+    "เทคโนโลยี": {"header_bg": "#312E81", "badge_bg": "#6366F1", "badge_text": "#FFFFFF", "icon": "🚀"},
+    "ไอที": {"header_bg": "#1E3A8A", "badge_bg": "#3B82F6", "badge_text": "#FFFFFF", "icon": "💻"},
+    "หุ้น": {"header_bg": "#065F46", "badge_bg": "#059669", "badge_text": "#FFFFFF", "icon": "📊"},
     "ธุรกิจ": {"header_bg": "#065F46", "badge_bg": "#10B981", "badge_text": "#FFFFFF", "icon": "📈"},
     "การเงิน": {"header_bg": "#065F46", "badge_bg": "#10B981", "badge_text": "#FFFFFF", "icon": "💰"},
-    "ไอที": {"header_bg": "#1E3A8A", "badge_bg": "#3B82F6", "badge_text": "#FFFFFF", "icon": "💻"},
-    "เทคโนโลยี": {"header_bg": "#312E81", "badge_bg": "#6366F1", "badge_text": "#FFFFFF", "icon": "🚀"},
     "ทั่วไป": {"header_bg": "#0C4A6E", "badge_bg": "#0284C7", "badge_text": "#FFFFFF", "icon": "📰"},
     "สังคม": {"header_bg": "#0C4A6E", "badge_bg": "#0284C7", "badge_text": "#FFFFFF", "icon": "👥"},
-    "การเมือง": {"header_bg": "#881337", "badge_bg": "#E11D48", "badge_text": "#FFFFFF", "icon": "🏛️"},
     "ข่าวเด่น": {"header_bg": "#78350F", "badge_bg": "#F59E0B", "badge_text": "#FFFFFF", "icon": "⭐"},
 }
 
@@ -168,6 +173,33 @@ def build_single_bubble(
             }
         )
 
+    if not bullet_boxes:
+        bullet_boxes.append(
+            {
+                "type": "box",
+                "layout": "horizontal",
+                "spacing": "sm",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": "•",
+                        "color": theme["badge_bg"],
+                        "size": "sm",
+                        "flex": 0,
+                        "weight": "bold",
+                    },
+                    {
+                        "type": "text",
+                        "text": "อ่านรายละเอียดเพิ่มเติมได้ที่ลิงก์ข่าวต้นฉบับ",
+                        "size": "sm",
+                        "color": "#64748B",
+                        "wrap": True,
+                        "flex": 1,
+                    },
+                ],
+            }
+        )
+
     body_contents: list[dict[str, Any]] = [
         {
             "type": "text",
@@ -277,15 +309,23 @@ def build_flex_message(
     date_str: Optional[str] = None,
 ) -> dict[str, Any]:
     """
-    Builds a LINE Flex Carousel message with a card per news item.
+    Builds a single LINE Flex Carousel message with a card per news item.
+    Note: LINE Flex carousels have a strict limit of 12 bubbles.
+    For sending more than 12 items, use build_flex_messages() instead.
     """
     formatted_date = date_str or get_thai_date_string()
-    total_count = len(news_items)
+    if len(news_items) > 12:
+        logger.warning(
+            f"build_flex_message received {len(news_items)} items but LINE carousel limit is 12. "
+            "Capping at 12 bubbles. Use build_flex_messages() to chunk into multiple carousels."
+        )
+    effective_items = news_items[:12]
+    total_count = len(effective_items)
     alt_text = f"☀️ สรุปข่าวเด่นเช้าวันนี้ ({total_count} ข่าว) • {formatted_date}"[:400]
 
     bubbles = [
         build_single_bubble(item, idx, total_count, formatted_date)
-        for idx, item in enumerate(news_items, 1)
+        for idx, item in enumerate(effective_items, 1)
     ]
 
     return {
@@ -298,40 +338,139 @@ def build_flex_message(
     }
 
 
+def build_flex_messages(
+    news_items: list[SummarizedNewsItem],
+    date_str: Optional[str] = None,
+    max_bubbles_per_carousel: int = 12,
+) -> list[dict[str, Any]]:
+    """
+    Builds one or more LINE Flex Carousel messages, chunking items so that
+    no carousel exceeds max_bubbles_per_carousel (LINE strict limit is 12).
+    A single LINE push request allows up to 5 message objects.
+    """
+    if not news_items:
+        return []
+
+    formatted_date = date_str or get_thai_date_string()
+    total_count = len(news_items)
+
+    # LINE limits: carousel container <= 12 bubbles, push request <= 5 messages
+    max_cap = min(max_bubbles_per_carousel, 12)
+    num_carousels = max(1, math.ceil(total_count / max_cap))
+    if num_carousels > 5:
+        logger.warning(f"Calculated {num_carousels} carousels exceeds LINE limit of 5. Capping at 5 messages.")
+        num_carousels = 5
+        chunk_size = 12
+        news_items = news_items[:5 * chunk_size]
+        total_count = len(news_items)
+    else:
+        chunk_size = math.ceil(total_count / num_carousels)
+
+    messages: list[dict[str, Any]] = []
+    for part_idx in range(num_carousels):
+        start_idx = part_idx * chunk_size
+        end_idx = min(start_idx + chunk_size, total_count)
+        chunk_items = news_items[start_idx:end_idx]
+        if not chunk_items:
+            break
+
+        if num_carousels > 1:
+            alt_text = f"☀️ สรุปข่าวเด่นเช้าวันนี้ (ชุดที่ {part_idx + 1}/{num_carousels}) • {formatted_date}"[:400]
+        else:
+            alt_text = f"☀️ สรุปข่าวเด่นเช้าวันนี้ ({total_count} ข่าว) • {formatted_date}"[:400]
+
+        bubbles = [
+            build_single_bubble(item, start_idx + i, total_count, formatted_date)
+            for i, item in enumerate(chunk_items, 1)
+        ]
+
+        messages.append({
+            "type": "flex",
+            "altText": alt_text,
+            "contents": {
+                "type": "carousel",
+                "contents": bubbles,
+            },
+        })
+
+    return messages
+
+
 def build_fallback_text_message(
     news_items: list[SummarizedNewsItem],
     date_str: Optional[str] = None,
+    max_char_limit: int = 5000,
 ) -> dict[str, Any]:
     """
-    Builds a structured Thai Text message as a reliable fallback.
+    Builds a structured Thai Text message as a reliable fallback, grouped by category
+    and strictly adhering to LINE Messaging API's 5,000 character limit per text message.
     """
     formatted_date = date_str or get_thai_date_string()
     total_count = len(news_items)
 
-    lines = [
-        f"☀️ สรุปข่าวเด่นเช้าวันนี้ • {formatted_date}",
-        f"คัดสรร {total_count} ข่าวสำคัญ อ่านจบได้ใน 1 นาที",
-        "━" * 22,
-        "",
-    ]
+    # Group by category preserving order, with canonical category sorting
+    from .gemini_summarizer import CANONICAL_CATEGORY_ORDER, normalize_category
 
-    for idx, item in enumerate(news_items, 1):
-        theme = get_theme_for_category(item.category)
-        lines.append(f"[{idx}] {theme['icon']} {item.category}: {item.title}")
-        for bullet in item.summary_bullets:
-            lines.append(f"  • {bullet}")
-        if item.importance_reason:
-            lines.append(f"  💡 ทำไมต้องรู้: {item.importance_reason}")
-        if item.url:
-            lines.append(f"  🔗 อ่านต่อ: {item.url}")
-        lines.append("")
+    grouped: dict[str, list[tuple[int, SummarizedNewsItem]]] = {}
+    for global_idx, item in enumerate(news_items, 1):
+        norm_cat = normalize_category(item.category)
+        grouped.setdefault(norm_cat, []).append((global_idx, item))
 
-    lines.append("━" * 22)
-    lines.append("🤖 สรุปอัตโนมัติด้วย Gemini AI • Daily News Bot")
+    sorted_categories = sorted(grouped.keys(), key=lambda c: CANONICAL_CATEGORY_ORDER.get(c, 99))
+
+    def render_text(
+        max_bullet_len: Optional[int] = None,
+        compact_titles: bool = True,
+        include_importance: bool = True,
+    ) -> str:
+        lines = [
+            f"☀️ สรุปข่าวเด่นเช้าวันนี้ • {formatted_date}",
+            f"คัดสรร {total_count} ข่าวสำคัญ อ่านจบได้ใน 1 นาที",
+            "━" * 22,
+            "",
+        ]
+        for category in sorted_categories:
+            cat_items = grouped[category]
+            theme = get_theme_for_category(category)
+            lines.append(f"【{theme['icon']} {category} ({len(cat_items)} ข่าว)】")
+            for idx, item in cat_items:
+                title_str = f"[{idx}] {item.title}" if compact_titles else f"[{idx}] {theme['icon']} {category}: {item.title}"
+                lines.append(title_str)
+                for bullet in item.summary_bullets:
+                    b_text = (bullet[:max_bullet_len] + "...") if (max_bullet_len and len(bullet) > max_bullet_len) else bullet
+                    lines.append(f"  • {b_text}")
+                if include_importance and item.importance_reason:
+                    lines.append(f"  💡 ทำไมต้องรู้: {item.importance_reason}")
+                if item.url:
+                    lines.append(f"  🔗 อ่านต่อ: {item.url}")
+                lines.append("")
+
+        lines.append("━" * 22)
+        lines.append("🤖 สรุปอัตโนมัติด้วย Gemini AI • Daily News Bot")
+        return "\n".join(lines).strip()
+
+    # Progressive compacting ladder ensuring all 15 items stay completely visible without truncation
+    full_text = render_text(max_bullet_len=None, compact_titles=True, include_importance=True)
+    if len(full_text) > max_char_limit:
+        full_text = render_text(max_bullet_len=100, compact_titles=True, include_importance=True)
+    if len(full_text) > max_char_limit:
+        full_text = render_text(max_bullet_len=60, compact_titles=True, include_importance=True)
+    if len(full_text) > max_char_limit:
+        full_text = render_text(max_bullet_len=40, compact_titles=True, include_importance=False)
+    if len(full_text) > max_char_limit:
+        # Ultimate hard safety cap (unlikely to trigger after compacting)
+        excess = len(full_text) - max_char_limit + 80
+        trimmed_body = full_text[:-excess].rsplit("\n", 1)[0]
+        full_text = (
+            trimmed_body
+            + "\n...\n(เนื้อหาถูกตัดทอนเนื่องจากจำกัดความยาว)\n"
+            + "━" * 22
+            + "\n🤖 สรุปอัตโนมัติด้วย Gemini AI • Daily News Bot"
+        )
 
     return {
         "type": "text",
-        "text": "\n".join(lines).strip(),
+        "text": full_text.strip(),
     }
 
 
@@ -362,8 +501,8 @@ def notify_line(
     timeout: int = 15,
 ) -> bool:
     """
-    Sends news items to LINE as a Flex Message.
-    If Flex message fails, automatically falls back to a structured Text message.
+    Sends news items to LINE as Flex Message carousels (chunked if > 12 items).
+    If Flex message delivery fails, automatically falls back to a structured Text message.
     """
     if not news_items:
         logger.warning("No news items to send to LINE.")
@@ -371,10 +510,10 @@ def notify_line(
 
     formatted_date = date_str or get_thai_date_string()
 
-    # 1. Try sending Flex Message
-    flex_msg = build_flex_message(news_items, formatted_date)
+    # 1. Try sending Flex Message carousels (chunked into multiple carousels if > 12 items)
+    flex_messages = build_flex_messages(news_items, formatted_date)
     try:
-        res = send_line_push_message(channel_access_token, user_id, [flex_msg], timeout=timeout)
+        res = send_line_push_message(channel_access_token, user_id, flex_messages, timeout=timeout)
         if res.status_code == 200:
             logger.info("Successfully sent LINE Flex Message.")
             return True
@@ -395,8 +534,7 @@ def notify_line(
             return True
         else:
             logger.error(f"Fallback Text message also failed with HTTP {res_text.status_code}: {res_text.text}")
-            res_text.raise_for_status()
             return False
     except Exception as e:
         logger.error(f"Fatal error sending fallback Text message to LINE: {e}")
-        raise
+        return False

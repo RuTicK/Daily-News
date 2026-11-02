@@ -4,9 +4,9 @@
 # ==============================================================================
 
 settings:
-  # จำนวนข่าวเด่นที่ต้องการให้ Gemini คัดเลือกและสรุป (3 - 5 ข่าว)
-  min_news_items: 3
-  max_news_items: 5
+  # จำนวนข่าวเด่นที่ต้องการให้ Gemini คัดเลือกและสรุป (15 ข่าวต่อวัน)
+  min_news_items: 15
+  max_news_items: 15
   
   # โมเดล Gemini ที่ใช้งาน (gemini-2.5-flash หรือ gemini-1.5-flash)
   gemini_model: "gemini-2.5-flash"
@@ -15,50 +15,84 @@ settings:
   fetch_timeout_seconds: 15
   
   # จำนวนหัวข้อข่าวต่อแหล่งข่าวที่จะดึงมาเป็นตัวเลือกให้ AI
-  max_items_per_source: 5
+  max_items_per_source: 8
 
-# แหล่งข่าว RSS Feeds (สามารถเปิด/ปิด หรือเพิ่มแหล่งข่าวใหม่ได้ตามต้องการ)
+# แหล่งข่าว RSS Feeds แบ่งตาม 4 หมวดหมู่:
+# ข่าวทั่วไทย 7 ข่าว, ข่าวการเมือง 3 ข่าว, เทคโนโลยี 3 ข่าว, หุ้น 2 ข่าว
 sources:
-  # --- ข่าวรวมเด่นประเทศไทย (Google News) ---
+  # ==============================================================================
+  # 1. ข่าวทั่วไทย (เป้าหมาย 7 ข่าว)
+  # ==============================================================================
   - name: "Google News Thailand"
-    category: "ข่าวเด่น"
+    category: "ข่าวทั่วไทย"
     url: "https://news.google.com/rss?hl=th&gl=TH&ceid=TH:th"
     enabled: true
 
-  # --- ข่าวทั่วไป / สังคม ---
   - name: "Thai PBS"
-    category: "ทั่วไป"
+    category: "ข่าวทั่วไทย"
     url: "https://news.google.com/rss/search?q=site:thaipbs.or.th&hl=th&gl=TH&ceid=TH:th"
     enabled: true
 
   - name: "Thairath"
-    category: "ทั่วไป"
+    category: "ข่าวทั่วไทย"
     url: "https://www.thairath.co.th/rss/news"
     enabled: true
 
   - name: "Khaosod"
-    category: "ทั่วไป"
+    category: "ข่าวทั่วไทย"
     url: "https://www.khaosod.co.th/feed"
     enabled: true
 
-  # --- ข่าวธุรกิจ / การเงิน ---
-  - name: "The Standard Wealth"
-    category: "ธุรกิจ"
-    url: "https://thestandard.co/category/wealth/feed/"
+  # ==============================================================================
+  # 2. ข่าวการเมือง (เป้าหมาย 3 ข่าว)
+  # ==============================================================================
+  - name: "Google News การเมือง"
+    category: "ข่าวการเมือง"
+    url: "https://news.google.com/rss/headlines/section/topic/POLITICS?hl=th&gl=TH&ceid=TH:th"
     enabled: true
 
-  - name: "Brand Inside"
-    category: "ธุรกิจ"
-    url: "https://brandinside.asia/feed/"
+  - name: "Thai PBS การเมือง"
+    category: "ข่าวการเมือง"
+    url: "https://news.google.com/rss/search?q=site:thaipbs.or.th+การเมือง&hl=th&gl=TH&ceid=TH:th"
     enabled: true
 
-  # --- ข่าวไอที / เทคโนโลยี ---
+  - name: "Matichon การเมือง"
+    category: "ข่าวการเมือง"
+    url: "https://www.matichon.co.th/politics/feed"
+    enabled: true
+
+  # ==============================================================================
+  # 3. เทคโนโลยี (เป้าหมาย 3 ข่าว)
+  # ==============================================================================
   - name: "Blognone"
-    category: "ไอที"
+    category: "เทคโนโลยี"
     url: "https://www.blognone.com/atom.xml"
     enabled: true
 
   - name: "Beartai"
     category: "เทคโนโลยี"
     url: "https://www.beartai.com/feed"
+    enabled: true
+
+  - name: "Brand Inside"
+    category: "เทคโนโลยี"
+    url: "https://brandinside.asia/feed/"
+    enabled: true
+
+  # ==============================================================================
+  # 4. หุ้น (เป้าหมาย 2 ข่าว)
+  # ==============================================================================
+  - name: "ข่าวหุ้นธุรกิจ (Kaohoon)"
+    category: "หุ้น"
+    url: "https://www.kaohoon.com/feed"
+    enabled: true
+
+  - name: "กรุงเทพธุรกิจ หุ้นและการเงิน"
+    category: "หุ้น"
+    url: "https://news.google.com/rss/search?q=site:bangkokbiznews.com+หุ้น&hl=th&gl=TH&ceid=TH:th"
+    enabled: true
+
+  - name: "The Standard Wealth"
+    category: "หุ้น"
+    url: "https://thestandard.co/category/wealth/feed/"
     enabled: true

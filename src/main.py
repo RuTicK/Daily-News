@@ -11,6 +11,7 @@ from .gemini_summarizer import fallback_summarize, summarize_with_gemini
 from .line_notifier import (
     build_fallback_text_message,
     build_flex_message,
+    build_flex_messages,
     get_thai_date_string,
     notify_line,
 )
@@ -96,6 +97,36 @@ def run_pipeline(config: AppConfig) -> bool:
                 max_items=config.settings.max_news_items,
             )
             logger.info(f"Gemini selected and summarized {len(summarized_items)} news items.")
+            if len(summarized_items) < config.settings.min_news_items:
+                logger.warning(
+                    f"Gemini returned {len(summarized_items)} items (< {config.settings.min_news_items}). "
+                    "Backfilling remaining slots from candidate feeds..."
+                )
+                from .gemini_summarizer import (
+                    SummarizedNewsItem,
+                    clean_fallback_summary,
+                    normalize_category,
+                    sort_items_by_category,
+                )
+                used_links = {it.url for it in summarized_items if it.url}
+                for cand in candidates:
+                    if cand.link not in used_links:
+                        used_links.add(cand.link)
+                        norm_cat = normalize_category(cand.category)
+                        bullet = clean_fallback_summary(cand.summary)
+                        summarized_items.append(
+                            SummarizedNewsItem(
+                                title=cand.title,
+                                category=norm_cat,
+                                summary_bullets=[bullet],
+                                importance_reason="ข่าวเด่นประจำเช้าวันนี้",
+                                url=cand.link,
+                                source_name=cand.source_name,
+                            )
+                        )
+                    if len(summarized_items) >= config.settings.max_news_items:
+                        break
+                summarized_items = sort_items_by_category(summarized_items[:config.settings.max_news_items])
         except Exception as e:
             logger.error(f"Gemini summarization failed: {e}. Falling back to raw feed selection.")
             summarized_items = fallback_summarize(
@@ -125,9 +156,9 @@ def run_pipeline(config: AppConfig) -> bool:
         safe_print(text_msg["text"])
         safe_print("=" * 50 + "\n")
 
-        flex_msg = build_flex_message(summarized_items, thai_date)
-        safe_print("FLEX MESSAGE PAYLOAD (sample):")
-        safe_print(json.dumps(flex_msg, ensure_ascii=False, indent=2)[:1000] + "\n...[truncated]...")
+        flex_msgs = build_flex_messages(summarized_items, thai_date)
+        safe_print(f"FLEX MESSAGE PAYLOAD ({len(flex_msgs)} carousel message(s)):")
+        safe_print(json.dumps(flex_msgs[0] if flex_msgs else {}, ensure_ascii=False, indent=2)[:1000] + "\n...[truncated]...")
         write_github_step_summary(summarized_items, thai_date)
         return True
 

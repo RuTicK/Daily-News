@@ -15,6 +15,50 @@ logger = logging.getLogger(__name__)
 GEMINI_API_URL_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 
+DEFAULT_CATEGORY_QUOTAS: dict[str, int] = {
+    "ข่าวทั่วไทย": 7,
+    "ข่าวการเมือง": 3,
+    "เทคโนโลยี": 3,
+    "หุ้น": 2,
+}
+
+CANONICAL_CATEGORY_ORDER: dict[str, int] = {
+    "ข่าวทั่วไทย": 0,
+    "ข่าวการเมือง": 1,
+    "เทคโนโลยี": 2,
+    "หุ้น": 3,
+}
+
+
+def normalize_category(category: str) -> str:
+    """Normalizes feed category aliases to the 4 canonical categories."""
+    cat = (category or "").strip()
+    cat_lower = cat.lower()
+
+    # 1. การเมือง (Politics)
+    if "การเมือง" in cat or "politic" in cat_lower:
+        return "ข่าวการเมือง"
+
+    # 2. เทคโนโลยี (Technology / IT)
+    if any(k in cat for k in ["เทคโนโลยี", "ไอที"]) or any(k in cat_lower for k in ["tech", "it", "gadget", "ai", "digital"]):
+        return "เทคโนโลยี"
+
+    # 3. หุ้น (Stocks / Finance / Economy / Wealth)
+    if any(k in cat for k in ["หุ้น", "ธุรกิจ", "การเงิน", "เศรษฐกิจ"]) or any(k in cat_lower for k in ["wealth", "stock", "finance", "biz", "business", "market", "economy"]):
+        return "หุ้น"
+
+    # 4. ข่าวทั่วไทย (General Thai / Local / Society)
+    if any(k in cat for k in ["ทั่วไทย", "ทั่วไป", "สังคม", "ข่าวเด่น", "ในประเทศ", "อาชญากรรม"]) or any(k in cat_lower for k in ["thailand", "general", "local"]):
+        return "ข่าวทั่วไทย"
+
+    return "ข่าวทั่วไทย" if cat not in CANONICAL_CATEGORY_ORDER else cat
+
+
+def sort_items_by_category(items: list["SummarizedNewsItem"]) -> list["SummarizedNewsItem"]:
+    """Sorts news items according to canonical category order."""
+    return sorted(items, key=lambda it: CANONICAL_CATEGORY_ORDER.get(it.category, 99))
+
+
 @dataclass
 class SummarizedNewsItem:
     title: str
@@ -26,26 +70,45 @@ class SummarizedNewsItem:
 
 
 SYSTEM_INSTRUCTION = """คุณคือบรรณาธิการข่าวเช้ามืออาชีพ มีหน้าที่คัดเลือกและสรุปข่าวเด่นประจำวันสำหรับคนไทย
-เป้าหมายคือช่วยให้ผู้อ่านอัปเดตข่าวสำคัญที่สุดได้ครบถ้วนภายในเวลา 1 นาที
+เป้าหมายคือช่วยให้ผู้อ่านอัปเดตข่าวสำคัญที่สุดได้ครบถ้วนและรวดเร็ว
 
 เกณฑ์การทำงาน:
-1. เลือกข่าวเด่นเพียง 3-5 ข่าว จากรายการข่าวที่ส่งให้ โดยเน้นข่าวที่มีผลกระทบสำคัญต่อชีวิตประจำวัน เศรษฐกิจ การเงิน สังคม หรือเทคโนโลยี
-2. พยายามกระจายหมวดหมู่ให้หลากหลาย (เช่น ทั่วไป, ธุรกิจ, การเงิน, ไอที, เทคโนโลยี)
-3. สรุปเนื้อหาข่าวแต่ละชิ้นเป็น Bullet points ภาษาไทย สั้น กระชับ ตรงประเด็น (2-3 ข้อต่อข่าว)
-4. อธิบายเหตุผลสั้นๆ 1 ประโยค (importance_reason) ว่าทำไมข่าวนี้ถึงสำคัญต่อคนไทยเช้านี้
-5. ต้องคง URL ข่าวต้นฉบับให้ตรงกับรายการที่ให้มาอย่างถูกต้อง ห้ามแต่งหรือเปลี่ยน URL
+1. เลือกข่าวเด่นรวมทั้งหมด 15 ข่าว จากรายการข่าวที่ส่งให้ โดยแบ่งสัดส่วนตามหมวดหมู่ต่อไปนี้อย่างเคร่งครัด:
+   - ข่าวทั่วไทย: 7 ข่าว (เหตุการณ์สำคัญ นโยบาย และข่าวสังคมในประเทศ)
+   - ข่าวการเมือง: 3 ข่าว (ความเคลื่อนไหวทางการเมือง รัฐบาล และรัฐสภา)
+   - เทคโนโลยี: 3 ข่าว (นวัตกรรม เทคโนโลยี ไอที AI และ Gadget)
+   - หุ้น: 2 ข่าว (ตลาดหุ้น การลงทุน ภาวะเศรษฐกิจและการเงิน)
+2. สรุปเนื้อหาข่าวแต่ละชิ้นเป็น Bullet points ภาษาไทย สั้น กระชับ ตรงประเด็น (1-2 ข้อต่อข่าว เพื่อให้อ่านง่ายและไม่ยาวเกินไป)
+3. อธิบายเหตุผลสั้นๆ 1 ประโยค (importance_reason) ว่าทำไมข่าวนี้ถึงสำคัญต่อคนไทยเช้านี้
+4. ต้องคง URL ข่าวต้นฉบับให้ตรงกับรายการที่ให้มาอย่างถูกต้อง ห้ามแต่งหรือเปลี่ยน URL
+5. ระบุ category ให้ตรงกับ 4 หมวดนี้เท่านั้น: ข่าวทั่วไทย, ข่าวการเมือง, เทคโนโลยี, หุ้น
 """
 
 
-def build_prompt(candidates: list[CandidateNewsItem], min_items: int = 3, max_items: int = 5) -> str:
+def build_prompt(
+    candidates: list[CandidateNewsItem],
+    min_items: int = 15,
+    max_items: int = 15,
+    category_quotas: Optional[dict[str, int]] = None,
+) -> str:
     """Builds the user prompt for Gemini containing candidate news items."""
+    quotas = category_quotas or (DEFAULT_CATEGORY_QUOTAS if max_items >= 15 else None)
+    if quotas:
+        quota_str = ", ".join(f"{cat} {count} ข่าว" for cat, count in quotas.items())
+        header = f"โปรดคัดเลือกข่าวเด่นรวม {min_items} ข่าวจากรายการข่าวต่อไปนี้ โดยแบ่งตามหมวดหมู่: {quota_str} และสรุปตามรูปแบบ JSON ที่กำหนด:"
+    elif min_items == max_items:
+        header = f"โปรดคัดเลือกข่าวเด่น {min_items} ข่าวจากรายการข่าวต่อไปนี้ และสรุปตามรูปแบบ JSON ที่กำหนด:"
+    else:
+        header = f"โปรดคัดเลือกข่าวเด่น {min_items}-{max_items} ข่าวจากรายการข่าวต่อไปนี้ และสรุปตามรูปแบบ JSON ที่กำหนด:"
+
     lines = [
-        f"โปรดคัดเลือกข่าวเด่น {min_items}-{max_items} ข่าวจากรายการข่าวต่อไปนี้ และสรุปตามรูปแบบ JSON ที่กำหนด:",
+        header,
         "",
     ]
     for idx, item in enumerate(candidates, 1):
+        norm_cat = normalize_category(item.category)
         lines.append(f"[{idx}] หัวข้อ: {item.title}")
-        lines.append(f"    หมวด: {item.category} | แหล่งข่าว: {item.source_name}")
+        lines.append(f"    หมวด: {norm_cat} | แหล่งข่าว: {item.source_name}")
         lines.append(f"    URL: {item.link}")
         if item.summary:
             # Clip summary snippet
@@ -59,7 +122,7 @@ def build_prompt(candidates: list[CandidateNewsItem], min_items: int = 3, max_it
         '  "news": [\n'
         "    {\n"
         '      "title": "พาดหัวข่าวที่กระชับและน่าสนใจ",\n'
-        '      "category": "หมวดข่าว (เช่น ธุรกิจ, ทั่วไป, ไอที)",\n'
+        '      "category": "หมวดข่าว (ระบุเป็น ข่าวทั่วไทย, ข่าวการเมือง, เทคโนโลยี, หรือ หุ้น)",\n'
         '      "summary_bullets": [\n'
         '        "ประเด็นสำคัญข้อที่ 1",\n'
         '        "ประเด็นสำคัญข้อที่ 2"\n'
@@ -101,12 +164,14 @@ def parse_gemini_json(raw_json_text: str) -> list[SummarizedNewsItem]:
         raise ValueError("Gemini output does not contain a list of news items.")
 
     results: list[SummarizedNewsItem] = []
+    seen_urls: set[str] = set()
     for item in items_raw:
         if not isinstance(item, dict):
             continue
         title = str(item.get("title", "")).strip()
         url = str(item.get("url", "")).strip()
-        category = str(item.get("category", "ทั่วไป")).strip()
+        raw_category = str(item.get("category", "ข่าวทั่วไทย")).strip() or "ข่าวทั่วไทย"
+        category = normalize_category(raw_category)
         importance = str(item.get("importance_reason", "")).strip()
         source_name = str(item.get("source_name", "")).strip()
 
@@ -119,6 +184,10 @@ def parse_gemini_json(raw_json_text: str) -> list[SummarizedNewsItem]:
             bullets = []
 
         if title and (url or bullets):
+            if url and url in seen_urls:
+                continue
+            if url:
+                seen_urls.add(url)
             results.append(
                 SummarizedNewsItem(
                     title=title,
@@ -136,8 +205,10 @@ def summarize_with_gemini(
     candidates: list[CandidateNewsItem],
     api_key: str,
     model: str = "gemini-2.5-flash",
-    min_items: int = 3,
-    max_items: int = 5,
+    min_items: int = 15,
+    max_items: int = 15,
+    category_quotas: Optional[dict[str, int]] = None,
+    max_candidate_pool: int = 35,
     timeout: int = 30,
 ) -> list[SummarizedNewsItem]:
     """
@@ -148,9 +219,14 @@ def summarize_with_gemini(
         return []
 
     url = f"{GEMINI_API_URL_TEMPLATE.format(model=model)}?key={api_key}"
-    # Cap candidates sent to Gemini at 15 items to comply with prompt specification
-    effective_candidates = candidates[:15]
-    prompt = build_prompt(effective_candidates, min_items=min_items, max_items=max_items)
+    # Cap candidates sent to Gemini at max_candidate_pool (default 35 items) to ensure ample variety across categories
+    effective_candidates = candidates[:max_candidate_pool]
+    prompt = build_prompt(
+        effective_candidates,
+        min_items=min_items,
+        max_items=max_items,
+        category_quotas=category_quotas,
+    )
 
     payload = {
         "contents": [
@@ -186,7 +262,11 @@ def summarize_with_gemini(
         raise ValueError(f"Empty text in Gemini response: {first_candidate}")
 
     raw_text = parts[0]["text"]
-    return parse_gemini_json(raw_text)
+    items = parse_gemini_json(raw_text)
+    if not items:
+        raise ValueError("Gemini returned no valid summarized news items.")
+
+    return sort_items_by_category(items[:max_items])
 
 
 def clean_fallback_summary(raw: Optional[str], max_len: int = 180) -> str:
@@ -208,17 +288,78 @@ def clean_fallback_summary(raw: Optional[str], max_len: int = 180) -> str:
 
 def fallback_summarize(
     candidates: list[CandidateNewsItem],
-    min_items: int = 3,
-    max_items: int = 5,
+    min_items: int = 15,
+    max_items: int = 15,
+    category_quotas: Optional[dict[str, int]] = None,
 ) -> list[SummarizedNewsItem]:
     """
     Fallback summarizer when Gemini API is unavailable.
-    Picks top diverse candidates directly from raw RSS feeds.
+    Picks top candidates conforming to category quotas (default: 7 ข่าวทั่วไทย, 3 ข่าวการเมือง, 3 เทคโนโลยี, 2 หุ้น).
     """
     results: list[SummarizedNewsItem] = []
-    seen_categories: set[str] = set()
+    if not candidates:
+        return results
 
-    # First pass: try to pick 1 per category
+    quotas = category_quotas if category_quotas is not None else (
+        DEFAULT_CATEGORY_QUOTAS if max_items >= 15 else None
+    )
+
+    if quotas:
+        # 1. Bucket candidates by normalized category
+        cat_items: dict[str, list[CandidateNewsItem]] = {cat: [] for cat in quotas}
+        other_items: list[CandidateNewsItem] = []
+
+        for item in candidates:
+            norm_cat = normalize_category(item.category)
+            if norm_cat in cat_items:
+                cat_items[norm_cat].append(item)
+            else:
+                other_items.append(item)
+
+        # 2. Pick items according to quota for each category
+        used_links: set[str] = set()
+        for cat, quota in quotas.items():
+            picked = 0
+            for item in cat_items.get(cat, []):
+                if item.link not in used_links and picked < quota:
+                    used_links.add(item.link)
+                    picked += 1
+                    bullet = clean_fallback_summary(item.summary)
+                    results.append(
+                        SummarizedNewsItem(
+                            title=item.title,
+                            category=cat,
+                            summary_bullets=[bullet],
+                            importance_reason="ข่าวเด่นประจำเช้าวันนี้",
+                            url=item.link,
+                            source_name=item.source_name,
+                        )
+                    )
+
+        # 3. If any quota was underfilled, fill remaining slots up to max_items
+        if len(results) < max_items:
+            for item in candidates:
+                if item.link not in used_links:
+                    used_links.add(item.link)
+                    norm_cat = normalize_category(item.category)
+                    bullet = clean_fallback_summary(item.summary)
+                    results.append(
+                        SummarizedNewsItem(
+                            title=item.title,
+                            category=norm_cat,
+                            summary_bullets=[bullet],
+                            importance_reason="ข่าวเด่นประจำเช้าวันนี้",
+                            url=item.link,
+                            source_name=item.source_name,
+                        )
+                    )
+                if len(results) >= max_items:
+                    break
+
+        return sort_items_by_category(results[:max_items])
+
+    # Non-quota fallback (e.g., when small limits like 3-5 items are explicitly requested)
+    seen_categories: set[str] = set()
     for item in candidates:
         if item.category not in seen_categories:
             seen_categories.add(item.category)
@@ -236,7 +377,6 @@ def fallback_summarize(
         if len(results) >= max_items:
             break
 
-    # Second pass: fill up to min_items if needed
     if len(results) < min_items:
         for item in candidates:
             if not any(r.url == item.link for r in results):
